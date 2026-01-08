@@ -1,35 +1,52 @@
-const express = require('express');
+const express = require("express");
+const multer = require("multer");
+const fs = require("fs");
+
+const extractText = require("../utils/resumeParser");
+const analyzeWithGemini = require("../services/geminiAnalyzer");
+
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const { analyzeResume } = require('../controllers/resumeController');
+const upload = multer({ dest: "uploads/" });
 
-// Configure multer for file upload
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
+router.post("/analyze", upload.single("resume"), async (req, res, next) => {
+  try {
+    const resumeFile = req.file;
+    const { jobDescription } = req.body;
 
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /pdf|doc|docx/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only PDF, DOC, and DOCX files are allowed'));
+    if (!resumeFile || !jobDescription) {
+      return res.status(400).json({ message: "Missing resume or job description" });
     }
+
+    console.log("Resume MIME:", resumeFile.mimetype);
+    console.log("JD length:", jobDescription.length);
+
+    // 1️⃣ Extract resume text
+    const resumeText = await extractText(
+      resumeFile.path,
+      resumeFile.mimetype
+    );
+
+    console.log("Resume text length:", resumeText.length);
+
+    if (!resumeText || resumeText.length < 50) {
+      fs.unlinkSync(resumeFile.path);
+      return res.status(400).json({
+        message: "Could not extract text from resume. Please upload a text-based PDF or DOCX."
+      });
+    }
+
+    // 2️⃣ Gemini ATS-style analysis
+    const analysis = await analyzeWithGemini(resumeText, jobDescription);
+
+    console.log("Gemini analysis result:", analysis);
+
+    // 3️⃣ Cleanup uploaded file
+    fs.unlinkSync(resumeFile.path);
+
+    res.json(analysis);
+  } catch (error) {
+    next(error);
   }
 });
-
-router.post('/analyze', upload.single('resume'), analyzeResume);
 
 module.exports = router;
