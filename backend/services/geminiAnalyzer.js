@@ -36,7 +36,7 @@ JSON format:
   "suggestions": [string]
 }
 `;
-
+console.log(process.env.GEMINI_API_KEY);
   const response = await axios.post(
     `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
     {
